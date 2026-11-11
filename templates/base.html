@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}MediFlow Hospital Management{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"></head>
+<body><aside class="sidebar"><a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-icon">✚</span><span><b>MediFlow</b><small>HOSPITAL MANAGEMENT</small></span></a><div class="nav-label">OPERATIONS</div><nav>
+<a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint=='dashboard' else '' }}">▦ <span>Dashboard</span></a>
+<a href="{{ url_for('patients') }}" class="{{ 'active' if request.endpoint in ['patients','patient_new','patient_detail','patient_edit'] else '' }}">♙ <span>Patients</span></a>
+<a href="{{ url_for('appointments') }}" class="{{ 'active' if request.endpoint=='appointments' else '' }}">▣ <span>Appointments</span></a>
+<a href="{{ url_for('beds') }}" class="{{ 'active' if request.endpoint in ['beds'] else '' }}">▥ <span>Admissions & beds</span></a>
+<a href="{{ url_for('doctors') }}" class="{{ 'active' if request.endpoint=='doctors' else '' }}">♧ <span>Doctors & departments</span></a>
+<a href="{{ url_for('billing') }}" class="{{ 'active' if request.endpoint in ['billing'] else '' }}">₹ <span>Billing</span></a>
+<a href="{{ url_for('inventory') }}" class="{{ 'active' if request.endpoint=='inventory' else '' }}">▤ <span>Inventory</span></a>
+<a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint=='reports' else '' }}">◫ <span>Reports</span></a>
+<a href="{{ url_for('activity') }}" class="{{ 'active' if request.endpoint=='activity' else '' }}">◷ <span>Activity log</span></a></nav><div class="sidebar-bottom"><div class="demo-note"><b>Local project mode</b><p>Data is stored in a SQLite database on this computer.</p></div><small>MEDIFLOW · VERSION 1.0</small></div></aside>
+<main class="main"><header class="topbar"><div><div class="crumb">HOSPITAL OPERATIONS / <span>{% block crumb %}OVERVIEW{% endblock %}</span></div><h1>{% block heading %}Dashboard{% endblock %}</h1></div><div class="top-right"><span class="online"><i></i> Local system online</span><div class="user-chip">AD</div></div></header>
+{% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-wrap">{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}<button onclick="this.parentElement.remove()">×</button></div>{% endfor %}</div>{% endif %}{% endwith %}
+<div class="content">{% block content %}{% endblock %}</div><footer><span>© {{ now.year }} MediFlow Hospital Management</span><span>Educational software · Use synthetic data only</span></footer></main><script src="{{ url_for('static',filename='app.js') }}"></script>{% block scripts %}{% endblock %}</body></html>
