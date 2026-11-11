@@ -1,4 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, abort
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_wtf.csrf import CSRFProtect
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_
 from datetime import datetime, date
@@ -8,11 +11,30 @@ import io
 import os
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-before-deployment")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(app.instance_path, "mediflow.db")
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-os.makedirs(app.instance_path, exist_ok=True)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me-before-deployment")
+database_url = os.environ.get("DATABASE_URL", "").strip()
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+if not database_url:
+    os.makedirs("instance", exist_ok=True)
+    database_url = "sqlite:///" + os.path.join(app.instance_path, "mediflow.db")
+app.config.update(
+    SQLALCHEMY_DATABASE_URI=database_url,
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
+)
 db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+login_manager.login_message = "Please sign in to continue."
+login_manager.login_message_category = "info"
+csrf = CSRFProtect(app)
 
 # This is a functional educational/local-use application. Do not enter real patient data
 # or deploy it for clinical use without a security, privacy, and regulatory review.
@@ -40,6 +62,33 @@ class Patient(db.Model):
             return "—"
         today = date.today()
         return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # hospital or patient
+    full_name = db.Column(db.String(120), nullable=False)
+    hospital_name = db.Column(db.String(150), default="")
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), unique=True, nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    patient = db.relationship("Patient", backref=db.backref("portal_user", uselist=False))
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    try:
+        return db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+
 
 class Department(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -119,6 +168,144 @@ def parse_datetime(value):
 @app.context_processor
 def inject_globals():
     return {"today": date.today(), "now": datetime.now()}
+
+@app.before_request
+def enforce_portal_access():
+    endpoint = request.endpoint
+    public = {"static", "login", "hospital_register", "patient_register", "logout"}
+    patient_endpoints = {"patient_portal"}
+    if endpoint is None or endpoint in public:
+        return None
+    if not current_user.is_authenticated:
+        return redirect(url_for("login", next=request.path))
+    if current_user.role == "patient" and endpoint not in patient_endpoints:
+        return redirect(url_for("patient_portal"))
+    if current_user.role == "hospital" and endpoint in patient_endpoints:
+        return redirect(url_for("dashboard"))
+    return None
+
+
+def safe_next_url(target):
+    # Only allow relative paths; never redirect to an arbitrary external site.
+    return target.startswith("/") and not target.startswith("//")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("patient_portal" if current_user.role == "patient" else "dashboard"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        requested_role = request.form.get("role", "")
+        user = User.query.filter_by(email=email).first()
+        if user and user.is_active and user.check_password(password) and user.role == requested_role:
+            login_user(user, remember=(request.form.get("remember") == "on"))
+            flash("Welcome back.", "success")
+            target = request.args.get("next", "")
+            if safe_next_url(target):
+                return redirect(target)
+            return redirect(url_for("patient_portal" if user.role == "patient" else "dashboard"))
+        flash("Those sign-in details don't match an active account and selected portal.", "error")
+    return render_template("auth_login.html")
+
+
+@app.route("/register/hospital", methods=["GET", "POST"])
+def hospital_register():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard" if current_user.role == "hospital" else "patient_portal"))
+    if request.method == "POST":
+        name = request.form.get("full_name", "").strip()
+        hospital_name = request.form.get("hospital_name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        code = request.form.get("registration_code", "")
+        expected_code = os.environ.get("HOSPITAL_REGISTRATION_CODE", "")
+        if not expected_code:
+            flash("Hospital registration is disabled until the administrator configures HOSPITAL_REGISTRATION_CODE.", "error")
+        elif code != expected_code:
+            flash("The hospital invitation code is not valid.", "error")
+        elif not name or not hospital_name or not email or len(password) < 10:
+            flash("Complete every field. Passwords must contain at least 10 characters.", "error")
+        elif User.query.filter_by(email=email).first():
+            flash("An account with that email already exists.", "error")
+        else:
+            user = User(full_name=name, hospital_name=hospital_name, email=email, role="hospital")
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            login_user(user)
+            log("Hospital account created", f"{hospital_name} · {email}")
+            db.session.commit()
+            flash("Hospital account created. Welcome to MediFlow.", "success")
+            return redirect(url_for("dashboard"))
+    return render_template("auth_hospital_register.html")
+
+
+@app.route("/register/patient", methods=["GET", "POST"])
+def patient_register():
+    if current_user.is_authenticated:
+        return redirect(url_for("patient_portal" if current_user.role == "patient" else "dashboard"))
+    if request.method == "POST":
+        name = request.form.get("full_name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        gender = request.form.get("gender", "")
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm_password", "")
+        dob_raw = request.form.get("dob", "")
+        phone = request.form.get("phone", "").strip()
+        if not name or not email or gender not in ["Female", "Male", "Other", "Prefer not to say"] or not dob_raw:
+            flash("Complete all required profile fields.", "error")
+        elif len(password) < 10:
+            flash("Choose a password with at least 10 characters.", "error")
+        elif password != confirm:
+            flash("The passwords do not match.", "error")
+        elif User.query.filter_by(email=email).first():
+            flash("An account with that email already exists.", "error")
+        else:
+            try:
+                dob = parse_date(dob_raw)
+                if dob > date.today():
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Enter a valid date of birth.", "error")
+                return render_template("auth_patient_register.html")
+            mrn = f"MF-{datetime.now():%y%m%d%H%M%S%f}"[-15:]
+            patient = Patient(mrn=mrn, name=name, dob=dob, gender=gender, phone=phone, email=email)
+            db.session.add(patient)
+            db.session.flush()
+            user = User(full_name=name, email=email, role="patient", patient_id=patient.id)
+            user.set_password(password)
+            db.session.add(user)
+            log("Patient self-registration", f"{name} · {mrn}")
+            db.session.commit()
+            login_user(user)
+            flash("Your patient account is ready.", "success")
+            return redirect(url_for("patient_portal"))
+    return render_template("auth_patient_register.html")
+
+
+@app.route("/logout", methods=["POST"])
+@login_required
+def logout():
+    logout_user()
+    flash("You have been signed out.", "success")
+    return redirect(url_for("login"))
+
+
+@app.route("/my-portal")
+@login_required
+def patient_portal():
+    if current_user.role != "patient" or not current_user.patient_id:
+        abort(403)
+    patient = db.session.get(Patient, current_user.patient_id)
+    if not patient:
+        abort(404)
+    appointments = Appointment.query.filter_by(patient_id=patient.id).order_by(Appointment.scheduled_at.desc()).limit(10).all()
+    invoices = Invoice.query.filter_by(patient_id=patient.id).order_by(Invoice.created_at.desc()).limit(10).all()
+    admissions = Admission.query.filter_by(patient_id=patient.id).order_by(Admission.admitted_at.desc()).limit(10).all()
+    return render_template("patient_portal.html", patient=patient, appointments=appointments, invoices=invoices, admissions=admissions)
+
 
 @app.route("/")
 def dashboard():
@@ -431,4 +618,4 @@ with app.app_context():
     seed()
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=os.environ.get("FLASK_DEBUG", "0") == "1")

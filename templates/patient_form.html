@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block heading %}{{ 'Edit patient' if patient else 'Register patient' }}{% endblock %}{% block crumb %}PATIENTS / FORM{% endblock %}{% block content %}
 <div class="page-intro"><div><h2>{{ 'Update patient profile' if patient else 'New patient registration' }}</h2><p>Fields marked with * are required. A unique medical record number is generated automatically.</p></div><a class="btn ghost" href="{{ url_for('patients') }}">← Back to directory</a></div>
-<form method="post" class="panel form-panel"><h3>Personal information</h3><div class="form-grid">
+<form method="post" class="panel form-panel">{{ csrf_token() }}<h3>Personal information</h3><div class="form-grid">
 <label>Full name *<input name="name" required maxlength="100" value="{{ patient.name if patient else '' }}"></label>
 <label>Date of birth<input type="date" name="dob" max="{{ today }}" value="{{ patient.dob.isoformat() if patient and patient.dob else '' }}"></label>
 <label>Gender *<select name="gender" required><option value="">Select gender</option>{% for g in ['Female','Male','Other','Prefer not to say'] %}<option {{ 'selected' if patient and patient.gender==g else '' }}>{{ g }}</option>{% endfor %}</select></label>

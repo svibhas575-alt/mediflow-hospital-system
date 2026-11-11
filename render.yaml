@@ -1,0 +1,23 @@
+databases:
+  - name: mediflow-db
+    databaseName: mediflow
+    user: mediflow
+    plan: basic-256mb
+services:
+  - type: web
+    name: mediflow
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    healthCheckPath: /login
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mediflow-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: HOSPITAL_REGISTRATION_CODE
+        sync: false
+      - key: COOKIE_SECURE
+        value: "1"
