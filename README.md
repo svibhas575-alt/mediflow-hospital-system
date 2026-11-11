@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # MediFlow – Hospital Management System
 
 A modern, web-based Hospital Management System built with Python and Flask to simplify hospital operations, patient management, appointments, billing, and inventory tracking.
@@ -117,4 +116,3 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 ---
 
 **MediFlow – Simplifying Hospital Management.**
->>>>>>> f2b068690f2ca2a56daf94a5423a83da8239ec93
