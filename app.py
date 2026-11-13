@@ -195,9 +195,14 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("patient_portal" if current_user.role == "patient" else "dashboard"))
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
+        login_identifier = request.form.get("login_identifier", "").strip()
         password = request.form.get("password", "")
         requested_role = request.form.get("role", "")
+        frontdesk_username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip()
+        if requested_role == "hospital" and login_identifier.casefold() == frontdesk_username.casefold():
+            email = "frontdesk@mediflow.local"
+        else:
+            email = login_identifier.lower()
         user = User.query.filter_by(email=email).first()
         if user and user.is_active and user.check_password(password) and user.role == requested_role:
             login_user(user, remember=(request.form.get("remember") == "on"))
@@ -613,9 +618,35 @@ def seed():
     log("System initialized", "MediFlow database created")
     db.session.commit()
 
+def ensure_frontdesk_account():
+    # Provision the demo Front Desk account from private environment variables.
+    # The password is immediately hashed; it is never stored in source code.
+    password = os.environ.get("FRONTDESK_PASSWORD", "")
+    if not password:
+        return
+    username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip() or "Vibhash"
+    if len(password) < 12:
+        raise RuntimeError("FRONTDESK_PASSWORD must contain at least 12 characters.")
+    internal_email = "frontdesk@mediflow.local"
+    user = User.query.filter_by(email=internal_email).first()
+    if user is None:
+        user = User(
+            full_name=username,
+            email=internal_email,
+            role="hospital",
+            hospital_name="MediFlow Demo Hospital",
+        )
+        db.session.add(user)
+    user.full_name = username
+    user.role = "hospital"
+    user.set_password(password)
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
     seed()
+    ensure_frontdesk_account()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=os.environ.get("FLASK_DEBUG", "0") == "1")
