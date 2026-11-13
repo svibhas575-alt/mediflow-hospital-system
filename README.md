@@ -4,7 +4,8 @@ A Flask hospital operations and patient-portal prototype with role-based account
 
 ## Phase 1 features
 
-- Separate hospital/staff and patient sign-in portals.
+- Separate Front Desk/staff and patient sign-in portals.
+- Front Desk username can be configured as `Vibhash`; its password is loaded from a private environment variable and stored only as a password hash.
 - Patient self-registration creates a linked patient record and portal account.
 - Hospital registration is protected by a private invitation code configured by the operator.
 - Passwords are stored as secure hashes; authenticated sessions and CSRF protection are enabled.
@@ -142,11 +143,13 @@ The app seeds department, doctor and bed reference records on first launch. It d
    ```powershell
    $env:SECRET_KEY = "replace-with-a-long-random-development-secret"
    $env:HOSPITAL_REGISTRATION_CODE = "your-private-hospital-invite-code"
+   $env:FRONTDESK_USERNAME = "Vibhash"
+   $env:FRONTDESK_PASSWORD = "choose-a-unique-password-of-12-or-more-characters"
    $env:COOKIE_SECURE = "0"
    py app.py
    ```
 
-4. Open `http://127.0.0.1:5000/login`. Register a hospital using the invitation code, or create a patient account.
+4. Open `http://127.0.0.1:5000/login`. Sign in to Front Desk with username `Vibhash` and the private password configured above. Patients create separate accounts using their own email addresses and passwords.
 
 Patient registration creates a patient profile in this prototype. Hospital registration is intentionally invitation-only; do not publish the invitation code. Existing pre-Phase-1 SQLite databases are retained because the new account table is additive. Back up the database before upgrading.
 
