@@ -129,9 +129,9 @@ mediflow-hospital-system/
 
 ## Important safety and deployment note
 
-This is a working educational/local prototype, **not certified hospital software**. It does not include authenticated user accounts, role-based access control, encryption at rest, secure backups, consent workflows, clinical decision support validation, or jurisdiction-specific privacy/regulatory compliance. Do not store real patient or medical information in it or expose it to the public internet. Before any real-world deployment, have qualified healthcare IT/security professionals add and test those controls and complete the required legal and clinical review.
+MediFlow is an educational prototype, **not certified hospital software**. It includes basic sign-in, password hashing, CSRF protection, and separate staff/patient routes, but it has not undergone a professional security or privacy audit. It is not suitable for real patient information, clinical decisions, or public-facing healthcare operations. Do not enter real patient or medical information. Before any real-world use, qualified healthcare IT/security professionals must review and test identity verification, authorization, tenant isolation, encryption, backups, audit controls, consent workflows, incident response, and applicable legal and regulatory requirements.
 
-The app seeds department, doctor and bed reference records on first launch. It does not seed fake patient records or fake financial transactions; you can create your own test records through the interface.
+The app seeds department, doctor and bed reference records on first launch. Use synthetic patient records and demo billing data only.
 
 
 ## Phase 1 setup (Windows 11 / local development)
