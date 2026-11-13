@@ -199,8 +199,11 @@ def login():
         password = request.form.get("password", "")
         requested_role = request.form.get("role", "")
         frontdesk_username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip()
+        demo_patient_username = os.environ.get("DEMO_PATIENT_USERNAME", "Vibhash").strip() or "Vibhash"
         if requested_role == "hospital" and login_identifier.casefold() == frontdesk_username.casefold():
             email = "frontdesk@mediflow.local"
+        elif requested_role == "patient" and login_identifier.casefold() == demo_patient_username.casefold():
+            email = os.environ.get("DEMO_PATIENT_EMAIL", "vibhash.patient@mediflow.local").strip().lower()
         else:
             email = login_identifier.lower()
         user = User.query.filter_by(email=email).first()
@@ -643,10 +646,52 @@ def ensure_frontdesk_account():
     db.session.commit()
 
 
+def ensure_demo_patient_account():
+    # Optional synthetic patient account for local demonstrations only.
+    # Configure DEMO_PATIENT_PASSWORD privately; never commit it to source control.
+    password = os.environ.get("DEMO_PATIENT_PASSWORD", "")
+    if not password:
+        return
+    if len(password) < 12:
+        raise RuntimeError("DEMO_PATIENT_PASSWORD must contain at least 12 characters.")
+
+    email = os.environ.get("DEMO_PATIENT_EMAIL", "vibhash.patient@mediflow.local").strip().lower()
+    username = os.environ.get("DEMO_PATIENT_USERNAME", "Vibhash").strip() or "Vibhash"
+    patient = Patient.query.filter_by(email=email).first()
+    if patient is None:
+        patient = Patient(
+            mrn="MF-DEMO-0001",
+            name=username,
+            dob=date(2000, 1, 1),
+            gender="Prefer not to say",
+            email=email,
+            notes="Synthetic demo profile — not a real patient record.",
+        )
+        db.session.add(patient)
+        db.session.flush()
+    else:
+        patient.name = username
+        patient.notes = "Synthetic demo profile — not a real patient record."
+
+    user = User.query.filter_by(email=email).first()
+    if user is None:
+        user = User(full_name=username, email=email, role="patient", patient_id=patient.id)
+        db.session.add(user)
+    elif user.role != "patient":
+        raise RuntimeError("DEMO_PATIENT_EMAIL is already assigned to a non-patient account.")
+    else:
+        user.full_name = username
+        user.patient_id = patient.id
+
+    user.set_password(password)
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
     seed()
     ensure_frontdesk_account()
+    ensure_demo_patient_account()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=os.environ.get("FLASK_DEBUG", "0") == "1")
