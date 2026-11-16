@@ -6,6 +6,7 @@
 <a href="{{ url_for('appointments') }}" class="{{ 'active' if request.endpoint=='appointments' else '' }}">▣ <span>Appointments</span></a>
 <a href="{{ url_for('beds') }}" class="{{ 'active' if request.endpoint in ['beds'] else '' }}">▥ <span>Admissions & beds</span></a>
 <a href="{{ url_for('doctors') }}" class="{{ 'active' if request.endpoint=='doctors' else '' }}">♧ <span>Doctors & departments</span></a>
+<a href="{{ url_for('staff_accounts') }}" class="{{ 'active' if request.endpoint=='staff_accounts' else '' }}">♙ <span>Staff accounts</span></a>
 <a href="{{ url_for('billing') }}" class="{{ 'active' if request.endpoint in ['billing'] else '' }}">₹ <span>Billing</span></a>
 <a href="{{ url_for('inventory') }}" class="{{ 'active' if request.endpoint=='inventory' else '' }}">▤ <span>Inventory</span></a>
 <a href="{{ url_for('reports') }}" class="{{ 'active' if request.endpoint=='reports' else '' }}">◫ <span>Reports</span></a>
