@@ -200,8 +200,9 @@ def login():
         requested_role = request.form.get("role", "")
         frontdesk_username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip()
         demo_patient_username = os.environ.get("DEMO_PATIENT_USERNAME", "Vibhash").strip() or "Vibhash"
+        frontdesk_email = os.environ.get("FRONTDESK_EMAIL", "svibhas575@gmail.com").strip().lower()
         if requested_role == "hospital" and login_identifier.casefold() == frontdesk_username.casefold():
-            email = "frontdesk@mediflow.local"
+            email = frontdesk_email
         elif requested_role == "patient" and login_identifier.casefold() == demo_patient_username.casefold():
             email = os.environ.get("DEMO_PATIENT_EMAIL", "vibhash.patient@mediflow.local").strip().lower()
         else:
@@ -652,8 +653,17 @@ def ensure_frontdesk_account():
     username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip() or "Vibhash"
     if len(password) < 12:
         raise RuntimeError("FRONTDESK_PASSWORD must contain at least 12 characters.")
-    internal_email = "frontdesk@mediflow.local"
+    internal_email = os.environ.get("FRONTDESK_EMAIL", "svibhas575@gmail.com").strip().lower()
+    if not internal_email:
+        raise RuntimeError("FRONTDESK_EMAIL must be a valid non-empty email address.")
+
     user = User.query.filter_by(email=internal_email).first()
+    legacy_user = User.query.filter_by(email="frontdesk@mediflow.local").first()
+    if user is not None and legacy_user is not None and user.id != legacy_user.id:
+        raise RuntimeError("Both the configured Front Desk email and legacy demo account exist; resolve the duplicate accounts before startup.")
+    if user is None and legacy_user is not None:
+        user = legacy_user
+        user.email = internal_email
     if user is None:
         user = User(
             full_name=username,
@@ -663,6 +673,7 @@ def ensure_frontdesk_account():
         )
         db.session.add(user)
     user.full_name = username
+    user.email = internal_email
     user.role = "hospital"
     user.set_password(password)
     db.session.commit()
