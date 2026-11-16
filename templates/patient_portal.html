@@ -1,1 +1,130 @@
-{% extends "auth_base.html" %}{% block title %}My patient portal · MediFlow{% endblock %}{% block content %}<div class="portal-top"><div><div class="auth-eyebrow">PATIENT PORTAL</div><h1>Hello, {{ patient.name }}</h1><p class="auth-muted">Your personal MediFlow overview.</p></div><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="logout-btn" type="submit">Sign out</button></form></div><div class="patient-id"><span>MEDICAL RECORD NUMBER</span><strong>{{ patient.mrn }}</strong></div><div class="portal-grid"><div class="portal-stat"><span>Appointments</span><strong>{{ appointments|length }}</strong></div><div class="portal-stat"><span>Invoices</span><strong>{{ invoices|length }}</strong></div><div class="portal-stat"><span>Admissions</span><strong>{{ admissions|length }}</strong></div></div><h2>Your appointments</h2>{% if appointments %}<div class="portal-list">{% for a in appointments %}<div><strong>{{ a.scheduled_at.strftime('%d %b %Y, %I:%M %p') }}</strong><span>{{ a.doctor.name if a.doctor else 'Doctor' }} · {{ a.status }}</span></div>{% endfor %}</div>{% else %}<p class="auth-muted">No appointments are listed yet.</p>{% endif %}<h2>Billing</h2>{% if invoices %}<div class="portal-list">{% for invoice in invoices %}<div><strong>{{ invoice.description }}</strong><span>₹{{ '%.2f'|format(invoice.amount) }} · {{ invoice.status }}</span></div>{% endfor %}</div>{% else %}<p class="auth-muted">No invoices are listed yet.</p>{% endif %}<h2>Admissions</h2>{% if admissions %}<div class="portal-list">{% for admission in admissions %}<div><strong>{{ admission.admitted_at.strftime('%d %b %Y') }}</strong><span>{{ admission.bed.ward if admission.bed else 'Ward' }} · {{ admission.status }}</span></div>{% endfor %}</div>{% else %}<p class="auth-muted">No admissions are listed yet.</p>{% endif %}<p class="portal-disclaimer">Only information currently recorded in MediFlow is shown. Lab reports, prescriptions and family access are not part of Phase 1.</p>{% endblock %}
+{% extends "auth_base.html" %}
+{% block title %}Patient dashboard · MediFlow{% endblock %}
+{% block content %}
+<div class="patient-dashboard">
+  <header class="patient-header">
+    <a class="patient-brand" href="{{ url_for('patient_portal') }}">
+      <span class="patient-brand-icon">✚</span>
+      <span><b>MediFlow</b><small>YOUR PATIENT PORTAL</small></span>
+    </a>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="logout-btn" type="submit">Sign out</button>
+    </form>
+  </header>
+
+  <section class="patient-welcome">
+    <div>
+      <div class="auth-eyebrow">PATIENT DASHBOARD</div>
+      <h1>Welcome, {{ patient.name }}</h1>
+      <p>Here is your personal hospital information and latest updates.</p>
+    </div>
+    <div class="patient-avatar">{{ patient.name[:1]|upper }}</div>
+  </section>
+
+  <section class="patient-id-card">
+    <div><span>MEDICAL RECORD NUMBER</span><strong>{{ patient.mrn }}</strong></div>
+    <div><span>ACCOUNT STATUS</span><strong class="patient-status">{{ patient.status }}</strong></div>
+  </section>
+
+  <section class="patient-summary-grid" aria-label="Patient summary">
+    <article class="patient-summary-card">
+      <span class="summary-icon">▣</span><small>Upcoming appointments</small>
+      <strong>{{ upcoming_appointments|length }}</strong>
+    </article>
+    <article class="patient-summary-card">
+      <span class="summary-icon">₹</span><small>Pending balance</small>
+      <strong>₹{{ '%.2f'|format(outstanding_total|float) }}</strong>
+    </article>
+    <article class="patient-summary-card">
+      <span class="summary-icon">✚</span><small>Active admissions</small>
+      <strong>{{ active_admissions|length }}</strong>
+    </article>
+  </section>
+
+  <section class="patient-section" id="appointments">
+    <div class="patient-section-heading">
+      <div><span class="section-kicker">YOUR CARE</span><h2>Upcoming appointments</h2></div>
+      <span class="section-count">{{ upcoming_appointments|length }} scheduled</span>
+    </div>
+    {% if upcoming_appointments %}
+      <div class="patient-record-list">
+        {% for appointment in upcoming_appointments %}
+          <article class="patient-record">
+            <div class="record-date"><strong>{{ appointment.scheduled_at.strftime('%d') }}</strong><span>{{ appointment.scheduled_at.strftime('%b %Y') }}</span></div>
+            <div class="record-main"><strong>{{ appointment.doctor.name if appointment.doctor else 'Doctor to be confirmed' }}</strong><span>{{ appointment.doctor.specialization if appointment.doctor else 'Consultation' }}{% if appointment.reason %} · {{ appointment.reason }}{% endif %}</span><small>{{ appointment.scheduled_at.strftime('%A, %I:%M %p') }}</small></div>
+            <span class="patient-pill {{ appointment.status|lower|replace(' ', '-') }}">{{ appointment.status }}</span>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="patient-empty"><strong>No upcoming appointments</strong><p>Any appointment scheduled by the hospital will appear here.</p></div>
+    {% endif %}
+    {% if past_appointments %}
+      <details class="patient-history"><summary>View recent appointment history</summary>
+        {% for appointment in past_appointments %}
+          <div class="history-row"><span>{{ appointment.scheduled_at.strftime('%d %b %Y, %I:%M %p') }}</span><strong>{{ appointment.doctor.name if appointment.doctor else 'Doctor' }}</strong><span>{{ appointment.status }}</span></div>
+        {% endfor %}
+      </details>
+    {% endif %}
+  </section>
+
+  <section class="patient-section" id="billing">
+    <div class="patient-section-heading">
+      <div><span class="section-kicker">PAYMENTS</span><h2>Billing and invoices</h2></div>
+      <span class="section-count">{{ invoices|length }} recent records</span>
+    </div>
+    {% if invoices %}
+      <div class="patient-table-wrap"><table class="patient-table"><thead><tr><th>INVOICE</th><th>DESCRIPTION</th><th>DATE</th><th>AMOUNT</th><th>STATUS</th></tr></thead><tbody>
+      {% for invoice in invoices %}
+        <tr><td>#INV-{{ '%05d'|format(invoice.id) }}</td><td>{{ invoice.description }}</td><td>{{ invoice.created_at.strftime('%d %b %Y') }}</td><td>₹{{ '%.2f'|format(invoice.amount|float) }}</td><td><span class="patient-pill {{ invoice.status|lower|replace(' ', '-') }}">{{ invoice.status }}</span></td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% else %}
+      <div class="patient-empty"><strong>No invoices available</strong><p>Your billing records will appear here when added by the hospital.</p></div>
+    {% endif %}
+    <p class="patient-note">For questions about a bill or payment, please contact the hospital billing desk.</p>
+  </section>
+
+  <section class="patient-section" id="admissions">
+    <div class="patient-section-heading">
+      <div><span class="section-kicker">HOSPITAL STAY</span><h2>Admissions</h2></div>
+      <span class="section-count">{{ active_admissions|length }} active</span>
+    </div>
+    {% if admissions %}
+      <div class="patient-record-list">
+        {% for admission in admissions %}
+          <article class="patient-record">
+            <div class="admission-icon">✚</div>
+            <div class="record-main"><strong>{{ admission.bed.ward if admission.bed else 'Hospital ward' }}{% if admission.bed %} · Bed {{ admission.bed.bed_number }}{% endif %}</strong><span>Admitted {{ admission.admitted_at.strftime('%d %b %Y') }}</span>{% if admission.discharged_at %}<small>Discharged {{ admission.discharged_at.strftime('%d %b %Y') }}</small>{% endif %}</div>
+            <span class="patient-pill {{ admission.status|lower|replace(' ', '-') }}">{{ admission.status }}</span>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="patient-empty"><strong>No admission records</strong><p>There are no hospital admissions linked to your account.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="patient-section" id="profile">
+    <div class="patient-section-heading"><div><span class="section-kicker">YOUR DETAILS</span><h2>Personal information</h2></div></div>
+    <div class="patient-profile-grid">
+      <div><small>FULL NAME</small><strong>{{ patient.name }}</strong></div>
+      <div><small>DATE OF BIRTH</small><strong>{{ patient.dob.strftime('%d %b %Y') if patient.dob else 'Not provided' }}</strong></div>
+      <div><small>AGE</small><strong>{{ patient.age }}</strong></div>
+      <div><small>GENDER</small><strong>{{ patient.gender }}</strong></div>
+      <div><small>BLOOD GROUP</small><strong>{{ patient.blood_group or 'Not recorded' }}</strong></div>
+      <div><small>PHONE</small><strong>{{ patient.phone or 'Not provided' }}</strong></div>
+      <div><small>EMAIL</small><strong>{{ patient.email or current_user.email }}</strong></div>
+      <div><small>EMERGENCY CONTACT</small><strong>{{ patient.emergency_contact or 'Not provided' }}</strong></div>
+      <div class="profile-wide"><small>ADDRESS</small><strong>{{ patient.address or 'Not provided' }}</strong></div>
+    </div>
+    <p class="patient-note">If any personal information needs correction, contact the hospital front desk. Profile changes are managed by hospital staff.</p>
+  </section>
+
+  <footer class="patient-footer">
+    <span>MediFlow · Patient portal</span>
+    <span>Only information linked to your account is displayed.</span>
+  </footer>
+</div>
+{% endblock %}
