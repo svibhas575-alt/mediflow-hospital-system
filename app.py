@@ -104,6 +104,24 @@ class Doctor(db.Model):
     phone = db.Column(db.String(30), default="")
     active = db.Column(db.Boolean, default=True)
 
+class Nurse(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    department = db.Column(db.String(80), default="General")
+    active = db.Column(db.Boolean, default=True)
+
+
+class StaffAssignment(db.Model):
+    """Links a staff login to exactly one doctor or nurse profile."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False)
+    doctor_id = db.Column(db.Integer, db.ForeignKey("doctor.id"), unique=True, nullable=True)
+    nurse_id = db.Column(db.Integer, db.ForeignKey("nurse.id"), unique=True, nullable=True)
+    user = db.relationship("User")
+    doctor = db.relationship("Doctor")
+    nurse = db.relationship("Nurse")
+
+
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
@@ -113,6 +131,23 @@ class Appointment(db.Model):
     status = db.Column(db.String(20), default="Scheduled")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     doctor = db.relationship("Doctor")
+
+class ConsultationNote(db.Model):
+    """Synthetic educational consultation record; not a clinical decision tool."""
+    id = db.Column(db.Integer, primary_key=True)
+    appointment_id = db.Column(db.Integer, db.ForeignKey("appointment.id"), nullable=False)
+    doctor_id = db.Column(db.Integer, db.ForeignKey("doctor.id"), nullable=False)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    author_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    note_text = db.Column(db.Text, nullable=False)
+    diagnosis_text = db.Column(db.String(250), default="")
+    follow_up_text = db.Column(db.String(250), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    appointment = db.relationship("Appointment")
+    doctor = db.relationship("Doctor")
+    patient = db.relationship("Patient")
+    author = db.relationship("User")
+
 
 class Bed(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -174,14 +209,26 @@ def enforce_portal_access():
     endpoint = request.endpoint
     public = {"static", "login", "hospital_register", "patient_register", "logout"}
     patient_endpoints = {"patient_portal"}
+    doctor_endpoints = {"doctor_portal", "doctor_note_create"}
+    nurse_endpoints = {"nurse_portal"}
     if endpoint is None or endpoint in public:
         return None
     if not current_user.is_authenticated:
         return redirect(url_for("login", next=request.path))
-    if current_user.role == "patient" and endpoint not in patient_endpoints:
-        return redirect(url_for("patient_portal"))
-    if current_user.role == "hospital" and endpoint in patient_endpoints:
-        return redirect(url_for("dashboard"))
+    if current_user.role == "patient":
+        if endpoint not in patient_endpoints:
+            return redirect(url_for("patient_portal"))
+    elif current_user.role == "doctor":
+        if endpoint not in doctor_endpoints:
+            abort(403)
+    elif current_user.role == "nurse":
+        if endpoint not in nurse_endpoints:
+            abort(403)
+    elif current_user.role == "hospital":
+        if endpoint in patient_endpoints | doctor_endpoints | nurse_endpoints:
+            return redirect(url_for("dashboard"))
+    else:
+        abort(403)
     return None
 
 
@@ -193,15 +240,17 @@ def safe_next_url(target):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("patient_portal" if current_user.role == "patient" else "dashboard"))
+        destination = {"patient": "patient_portal", "doctor": "doctor_portal", "nurse": "nurse_portal"}.get(current_user.role, "dashboard")
+        return redirect(url_for(destination))
     if request.method == "POST":
         login_identifier = request.form.get("login_identifier", "").strip()
         password = request.form.get("password", "")
         requested_role = request.form.get("role", "")
         frontdesk_username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip()
         demo_patient_username = os.environ.get("DEMO_PATIENT_USERNAME", "Vibhash").strip() or "Vibhash"
+        frontdesk_email = os.environ.get("FRONTDESK_EMAIL", "svibhas575@gmail.com").strip().lower()
         if requested_role == "hospital" and login_identifier.casefold() == frontdesk_username.casefold():
-            email = "frontdesk@mediflow.local"
+            email = frontdesk_email
         elif requested_role == "patient" and login_identifier.casefold() == demo_patient_username.casefold():
             email = os.environ.get("DEMO_PATIENT_EMAIL", "vibhash.patient@mediflow.local").strip().lower()
         else:
@@ -213,7 +262,8 @@ def login():
             target = request.args.get("next", "")
             if safe_next_url(target):
                 return redirect(target)
-            return redirect(url_for("patient_portal" if user.role == "patient" else "dashboard"))
+            destination = {"patient": "patient_portal", "doctor": "doctor_portal", "nurse": "nurse_portal"}.get(user.role, "dashboard")
+            return redirect(url_for(destination))
         flash("Those sign-in details don't match an active account and selected portal.", "error")
     return render_template("auth_login.html")
 
@@ -309,10 +359,32 @@ def patient_portal():
     patient = db.session.get(Patient, current_user.patient_id)
     if not patient:
         abort(404)
-    appointments = Appointment.query.filter_by(patient_id=patient.id).order_by(Appointment.scheduled_at.desc()).limit(10).all()
+    now = datetime.now()
+    upcoming_appointments = Appointment.query.filter(
+        Appointment.patient_id == patient.id,
+        Appointment.scheduled_at >= now
+    ).order_by(Appointment.scheduled_at.asc()).limit(5).all()
+    past_appointments = Appointment.query.filter(
+        Appointment.patient_id == patient.id,
+        Appointment.scheduled_at < now
+    ).order_by(Appointment.scheduled_at.desc()).limit(5).all()
     invoices = Invoice.query.filter_by(patient_id=patient.id).order_by(Invoice.created_at.desc()).limit(10).all()
-    admissions = Admission.query.filter_by(patient_id=patient.id).order_by(Admission.admitted_at.desc()).limit(10).all()
-    return render_template("patient_portal.html", patient=patient, appointments=appointments, invoices=invoices, admissions=admissions)
+    outstanding_total = db.session.query(
+        db.func.coalesce(db.func.sum(Invoice.amount), 0)
+    ).filter_by(patient_id=patient.id, status="Unpaid").scalar()
+    admissions = Admission.query.filter_by(patient_id=patient.id).order_by(Admission.admitted_at.desc()).limit(5).all()
+    active_admissions = [admission for admission in admissions if admission.status == "Admitted"]
+    return render_template(
+        "patient_portal.html",
+        patient=patient,
+        upcoming_appointments=upcoming_appointments,
+        past_appointments=past_appointments,
+        invoices=invoices,
+        outstanding_total=outstanding_total,
+        admissions=admissions,
+        active_admissions=active_admissions,
+        now=now
+    )
 
 
 @app.route("/")
@@ -494,6 +566,97 @@ def doctors():
         return redirect(url_for("doctors"))
     return render_template("doctors.html", doctors=Doctor.query.order_by(Doctor.name).all(), departments=Department.query.order_by(Department.name).all())
 
+@app.route("/staff-accounts", methods=["GET", "POST"])
+def staff_accounts():
+    if request.method == "POST":
+        full_name = request.form.get("full_name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        staff_type = request.form.get("staff_type", "")
+        if not full_name or not email or len(password) < 12 or User.query.filter_by(email=email).first():
+            flash("Enter a name, unused email and password of at least 12 characters.", "error")
+            return redirect(url_for("staff_accounts"))
+        if staff_type == "doctor":
+            doctor = db.session.get(Doctor, request.form.get("doctor_id", type=int))
+            if not doctor or not doctor.active or StaffAssignment.query.filter_by(doctor_id=doctor.id).first():
+                flash("Select an active doctor profile that does not already have a login.", "error")
+                return redirect(url_for("staff_accounts"))
+            user = User(full_name=full_name, email=email, role="doctor")
+            user.set_password(password)
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(StaffAssignment(user_id=user.id, doctor_id=doctor.id))
+        elif staff_type == "nurse":
+            department = request.form.get("department", "General").strip() or "General"
+            nurse = Nurse(name=full_name, department=department)
+            db.session.add(nurse)
+            db.session.flush()
+            user = User(full_name=full_name, email=email, role="nurse")
+            user.set_password(password)
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(StaffAssignment(user_id=user.id, nurse_id=nurse.id))
+        else:
+            flash("Choose a valid staff account type.", "error")
+            return redirect(url_for("staff_accounts"))
+        log("Staff account created", f"{staff_type.title()} account · {email}")
+        db.session.commit()
+        flash(f"{staff_type.title()} account created. Share its sign-in details securely.", "success")
+        return redirect(url_for("staff_accounts"))
+    linked_doctor_ids = [x.doctor_id for x in StaffAssignment.query.filter(StaffAssignment.doctor_id.isnot(None)).all()]
+    return render_template(
+        "staff_accounts.html",
+        doctors=Doctor.query.filter(Doctor.active.is_(True), ~Doctor.id.in_(linked_doctor_ids)).order_by(Doctor.name).all(),
+        staff=StaffAssignment.query.order_by(StaffAssignment.id.desc()).all()
+    )
+
+
+@app.route("/doctor-portal")
+@login_required
+def doctor_portal():
+    assignment = StaffAssignment.query.filter_by(user_id=current_user.id).first()
+    if not assignment or not assignment.doctor_id:
+        abort(403)
+    doctor = assignment.doctor
+    appointments = Appointment.query.filter_by(doctor_id=doctor.id).order_by(Appointment.scheduled_at.desc()).all()
+    notes = ConsultationNote.query.filter_by(doctor_id=doctor.id).order_by(ConsultationNote.created_at.desc()).limit(20).all()
+    return render_template("doctor_portal.html", doctor=doctor, appointments=appointments, notes=notes)
+
+
+@app.post("/doctor-portal/appointments/<int:appointment_id>/notes")
+@login_required
+def doctor_note_create(appointment_id):
+    assignment = StaffAssignment.query.filter_by(user_id=current_user.id).first()
+    if not assignment or not assignment.doctor_id:
+        abort(403)
+    appointment = Appointment.query.filter_by(id=appointment_id, doctor_id=assignment.doctor_id).first_or_404()
+    note_text = request.form.get("note_text", "").strip()
+    diagnosis_text = request.form.get("diagnosis_text", "").strip()
+    follow_up_text = request.form.get("follow_up_text", "").strip()
+    if not note_text or len(note_text) > 5000 or len(diagnosis_text) > 250 or len(follow_up_text) > 250:
+        flash("Add a note (up to 5,000 characters); other fields are limited to 250 characters.", "error")
+    else:
+        db.session.add(ConsultationNote(
+            appointment_id=appointment.id, doctor_id=assignment.doctor_id,
+            patient_id=appointment.patient_id, author_user_id=current_user.id,
+            note_text=note_text, diagnosis_text=diagnosis_text, follow_up_text=follow_up_text
+        ))
+        log("Demo consultation note saved", f"Appointment #{appointment.id} · {current_user.full_name}")
+        db.session.commit()
+        flash("Demo consultation note saved.", "success")
+    return redirect(url_for("doctor_portal"))
+
+
+@app.route("/nurse-portal")
+@login_required
+def nurse_portal():
+    assignment = StaffAssignment.query.filter_by(user_id=current_user.id).first()
+    if not assignment or not assignment.nurse_id or not assignment.nurse.active:
+        abort(403)
+    admissions = Admission.query.filter_by(status="Admitted").order_by(Admission.admitted_at.desc()).all()
+    return render_template("nurse_portal.html", nurse=assignment.nurse, admissions=admissions)
+
+
 @app.route("/billing", methods=["GET", "POST"])
 def billing():
     if request.method == "POST":
@@ -630,8 +793,17 @@ def ensure_frontdesk_account():
     username = os.environ.get("FRONTDESK_USERNAME", "Vibhash").strip() or "Vibhash"
     if len(password) < 12:
         raise RuntimeError("FRONTDESK_PASSWORD must contain at least 12 characters.")
-    internal_email = "frontdesk@mediflow.local"
+    internal_email = os.environ.get("FRONTDESK_EMAIL", "svibhas575@gmail.com").strip().lower()
+    if not internal_email:
+        raise RuntimeError("FRONTDESK_EMAIL must be a valid non-empty email address.")
+
     user = User.query.filter_by(email=internal_email).first()
+    legacy_user = User.query.filter_by(email="frontdesk@mediflow.local").first()
+    if user is not None and legacy_user is not None and user.id != legacy_user.id:
+        raise RuntimeError("Both the configured Front Desk email and legacy demo account exist; resolve the duplicate accounts before startup.")
+    if user is None and legacy_user is not None:
+        user = legacy_user
+        user.email = internal_email
     if user is None:
         user = User(
             full_name=username,
@@ -641,6 +813,7 @@ def ensure_frontdesk_account():
         )
         db.session.add(user)
     user.full_name = username
+    user.email = internal_email
     user.role = "hospital"
     user.set_password(password)
     db.session.commit()

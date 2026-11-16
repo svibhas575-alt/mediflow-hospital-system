@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}MediFlow Staff{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"></head>
+<body><main class="main" style="margin-left:0;max-width:1400px"><header class="topbar"><div><div class="crumb">MEDIFLOW / STAFF WORKSPACE</div><h1>{% block heading %}Staff portal{% endblock %}</h1></div><div class="top-right"><span>{{ current_user.full_name }}</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></header>
+{% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-wrap">{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+<div class="content">{% block content %}{% endblock %}</div><footer><span>MediFlow · Staff workspace</span><span>Educational demo · Synthetic data only · Not for clinical use</span></footer></main></body></html>

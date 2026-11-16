@@ -1,0 +1,5 @@
+{% extends "staff_base.html" %}{% block title %}Nursing workspace · MediFlow{% endblock %}{% block heading %}Nursing workspace{% endblock %}{% block content %}
+<div class="page-intro"><div><h2>{{ nurse.name }}</h2><p>{{ nurse.department }} · Ward overview</p></div><span class="pill active">Nurse account</span></div>
+<section class="panel"><div class="panel-head"><h3>Current admissions</h3><span class="muted-label">{{ admissions|length }} active</span></div><div class="table-scroll"><table><thead><tr><th>PATIENT</th><th>WARD / BED</th><th>ADMITTED</th><th>STATUS</th></tr></thead><tbody>{% for a in admissions %}<tr><td><b>{{ a.patient.name }}</b><small class="sub">{{ a.patient.mrn }}</small></td><td>{{ a.bed.ward }} · {{ a.bed.bed_number }}</td><td>{{ a.admitted_at.strftime('%d %b %Y · %H:%M') }}</td><td><span class="pill active">{{ a.status }}</span></td></tr>{% else %}<tr><td colspan="4" class="empty">No active admissions.</td></tr>{% endfor %}</tbody></table></div></section>
+<div class="alert">This initial nursing workspace is read-only. It displays synthetic admission data and is not a clinical task or handover system.</div>
+{% endblock %}
