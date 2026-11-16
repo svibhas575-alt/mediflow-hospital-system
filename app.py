@@ -309,10 +309,32 @@ def patient_portal():
     patient = db.session.get(Patient, current_user.patient_id)
     if not patient:
         abort(404)
-    appointments = Appointment.query.filter_by(patient_id=patient.id).order_by(Appointment.scheduled_at.desc()).limit(10).all()
+    now = datetime.now()
+    upcoming_appointments = Appointment.query.filter(
+        Appointment.patient_id == patient.id,
+        Appointment.scheduled_at >= now
+    ).order_by(Appointment.scheduled_at.asc()).limit(5).all()
+    past_appointments = Appointment.query.filter(
+        Appointment.patient_id == patient.id,
+        Appointment.scheduled_at < now
+    ).order_by(Appointment.scheduled_at.desc()).limit(5).all()
     invoices = Invoice.query.filter_by(patient_id=patient.id).order_by(Invoice.created_at.desc()).limit(10).all()
-    admissions = Admission.query.filter_by(patient_id=patient.id).order_by(Admission.admitted_at.desc()).limit(10).all()
-    return render_template("patient_portal.html", patient=patient, appointments=appointments, invoices=invoices, admissions=admissions)
+    outstanding_total = db.session.query(
+        db.func.coalesce(db.func.sum(Invoice.amount), 0)
+    ).filter_by(patient_id=patient.id, status="Unpaid").scalar()
+    admissions = Admission.query.filter_by(patient_id=patient.id).order_by(Admission.admitted_at.desc()).limit(5).all()
+    active_admissions = [admission for admission in admissions if admission.status == "Admitted"]
+    return render_template(
+        "patient_portal.html",
+        patient=patient,
+        upcoming_appointments=upcoming_appointments,
+        past_appointments=past_appointments,
+        invoices=invoices,
+        outstanding_total=outstanding_total,
+        admissions=admissions,
+        active_admissions=active_admissions,
+        now=now
+    )
 
 
 @app.route("/")
